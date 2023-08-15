@@ -16,3 +16,8 @@ python train_rgbd.py
 
 ## Inference
 python test_rgbd.py
+
+## Result
+<div align="center">
+  <img src="https://github.com/nianfd/IMIR-Net/blob/main/results.png" width=800 />
+</div>
