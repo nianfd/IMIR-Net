@@ -3,7 +3,7 @@ This is the official implementation (based on PyTorch) of the paper our paper "I
 Including code, models, and log file.
 
 <div align="center">
-  <img src="https://github.com/PaddlePaddle/PaddleDetection/assets/17582080/3184a08e-aa4d-49cf-9079-f3695c4cc1c3" width=500 />
+  <img src="https://github.com/nianfd/IMIR-Net/blob/main/framework.png" width=800 />
 </div>
 
 ## Data and model
