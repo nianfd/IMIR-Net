@@ -1,5 +1,5 @@
 # IMIR-Net
-This is the official implementation (based on PyTorch) of the paper our paper "Ingredient-guided Multi-modal Interaction and Refinement Network for RGB-D Food Nutrition Assessment".
+This is the official implementation (based on PyTorch) of our paper "Ingredient-guided Multi-modal Interaction and Refinement Network for RGB-D Food Nutrition Assessment".
 Including code, models, and log file.
 
 <div align="center">
