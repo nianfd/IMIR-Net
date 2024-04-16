@@ -18,7 +18,7 @@ from utils import *
 from utils_data import get_DataLoader
 #from light_cnn_v4 import LightCNN_V4
 import torchvision as tv
-from mynetwork import MyResNetRGBD
+from mynetwork import MyResNetRGBD,MyResNetRGBD_base
 from torchvision.models.resnet import Bottleneck, BasicBlock, conv1x1, conv3x3
 
 parser = argparse.ArgumentParser(description='PyTorch Light CNN Training')
@@ -30,7 +30,7 @@ parser.add_argument('--epochs', default=300, type=int, metavar='N',
                     help='number of total epochs to run')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
-parser.add_argument('--b', '--batch-size', default=20, type=int,
+parser.add_argument('--b', '--batch-size', default=8, type=int,
                     metavar='N', help='mini-batch size (default: 128)')
 parser.add_argument('--lr', '--learning-rate', default=0.0001, type=float,
                     metavar='LR', help='initial learning rate')
@@ -45,7 +45,7 @@ parser.add_argument('--resume', default='', type=str, metavar='PATH',
                     help='path to latest checkpoint (default: none)')
 # parser.add_argument('--data_root', default='C:/project/data/nutrition5k', type=str, metavar='PATH',
 #                     help='path to root path of images (default: none)')
-parser.add_argument('--data_root', default='/home/user/nfdProject/food', type=str, metavar='PATH',
+parser.add_argument('--data_root', default='/data/Nutrition', type=str, metavar='PATH',
                     help='path to root path of images (default: none)')
 parser.add_argument('--train_list', default='', type=str, metavar='PATH',
                     help='path to training list (default: none)')
@@ -67,7 +67,7 @@ def main():
     #model = LightCNN_V4()
     # model = MyResNet(Bottleneck, [3, 4, 6, 3])  # 这里具体的参数参考库中源代码
     # model.load_state_dict(torch.load('resnet50-19c8e357.pth'), strict=False)
-    model = MyResNetRGBD()
+    model = MyResNetRGBD_base()
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model = model.to(device)
 
