@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from torchvision.models.resnet import Bottleneck, BasicBlock, conv1x1, conv3x3
 import torch.nn.functional as F
+import timm
 
 class CA_Enhance(nn.Module):
     def __init__(self, in_planes, ratio=16):
@@ -337,6 +338,7 @@ class MyResNetRGBD(nn.Module):
         x_fea = self.model_rgb.layer1(x_fea)
         x_fea = self.model_rgb.layer2(x_fea)
         l3_fea_rgb = self.model_rgb.layer3(x_fea)
+        #print(l3_fea_rgb.shape)
 
         ######################################
         x_fea_depth = self.model_depth.conv1(x_depth)
@@ -354,6 +356,7 @@ class MyResNetRGBD(nn.Module):
 
         l4_fea_depth = self.model_depth.layer4(l3_fea_depth)
         l4_fea_rgb = self.model_rgb.layer4(l3_fea_rgb)
+        #print(l4_fea_rgb.shape)
 
         #depth refine rgb
         l4_fea_rgb_depth = self.CA_SA_Enhance_4(l4_fea_rgb, l4_fea_depth)
@@ -421,6 +424,208 @@ class MyResNetRGBD(nn.Module):
         results.append(self.protein(embedding).squeeze())
         return results, rgb_fea_t
 
+class MyResNetRGBD_base(nn.Module):
+    def __init__(self):
+        super(MyResNetRGBD_base, self).__init__()
+        self.model_rgb = MyResNet(Bottleneck, [3, 4, 23, 3])  # 这里具体的参数参考库中源代码
+        self.model_rgb.load_state_dict(torch.load('food2k_resnet101_0.0001.pth'), strict=False)
+
+        self.model_depth = MyResNet(Bottleneck, [3, 4, 23, 3])  # 这里具体的参数参考库中源代码
+        self.model_depth.load_state_dict(torch.load('food2k_resnet101_0.0001.pth'), strict=False)
+
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        #self.fc1 = nn.Linear(1024, 256) #
+        self.fc1 = nn.Linear(512, 256)  #
+        self.calorie = nn.Sequential(nn.Linear(256, 256), nn.Linear(256, 1))
+        self.mass = nn.Sequential(nn.Linear(256, 256), nn.Linear(256, 1))
+        self.fat = nn.Sequential(nn.Linear(256, 256), nn.Linear(256, 1))
+        self.carb = nn.Sequential(nn.Linear(256, 256), nn.Linear(256, 1))
+        self.protein = nn.Sequential(nn.Linear(256, 256), nn.Linear(256, 1))
+
+        self.encoder_l3_rgb = DilatedEncoder(in_channels=2048)
+        self.encoder_l4_rgb = DilatedEncoder(in_channels=4096)
+
+        self.encoder_l3_depth = DilatedEncoder(in_channels=1024)
+        self.encoder_l4_depth = DilatedEncoder(in_channels=2048)
+
+        self.CA_SA_Enhance_3 = CA_SA_Enhance(2048)
+        self.CA_SA_Enhance_4 = CA_SA_Enhance(4096)
+
+        self.con2d = nn.Conv2d(in_channels=1024, out_channels=512, kernel_size=3, padding=1, bias=True)
+        self.relu = nn.ReLU(inplace=True)
+
+        self.con2d_t = nn.Conv2d(in_channels=1024, out_channels=512, kernel_size=3, padding=1, bias=True)
+        self.fc_t = nn.Linear(512,512)
+
+    def forward(self, x_rgb, x_depth):
+        x_fea = self.model_rgb.conv1(x_rgb)
+        x_fea = self.model_rgb.bn1(x_fea)
+        x_fea = self.model_rgb.relu(x_fea)
+        x_fea = self.model_rgb.maxpool(x_fea)
+
+        x_fea = self.model_rgb.layer1(x_fea)
+        x_fea = self.model_rgb.layer2(x_fea)
+        l3_fea_rgb_src = self.model_rgb.layer3(x_fea)
+        #print(l3_fea_rgb.shape)
+
+        ######################################
+        x_fea_depth = self.model_depth.conv1(x_depth)
+        x_fea_depth = self.model_depth.bn1(x_fea_depth)
+        x_fea_depth = self.model_depth.relu(x_fea_depth)
+        x_fea_depth = self.model_depth.maxpool(x_fea_depth)
+
+        x_fea_depth = self.model_depth.layer1(x_fea_depth)
+        x_fea_depth = self.model_depth.layer2(x_fea_depth)
+        l3_fea_depth = self.model_depth.layer3(x_fea_depth)
+
+        # rgb refine depth
+        #l3_fea_depth_rgb = self.CA_SA_Enhance_3(l3_fea_depth, l3_fea_rgb)
+        #l3_fea_depth = l3_fea_depth + l3_fea_depth_rgb
+        l3_fea_rgb = torch.cat((l3_fea_depth, l3_fea_rgb_src), dim=1)
+        
+        l4_fea_depth = self.model_depth.layer4(l3_fea_depth)
+        l4_fea_rgb = self.model_rgb.layer4(l3_fea_rgb_src)
+        #print(l4_fea_rgb.shape)
+
+        #depth refine rgb
+        #l4_fea_rgb_depth = self.CA_SA_Enhance_4(l4_fea_rgb, l4_fea_depth)
+        #l4_fea_rgb = l4_fea_rgb + l4_fea_rgb_depth
+        l4_fea_rgb = torch.cat((l4_fea_rgb, l4_fea_depth), dim=1)
+
+        l3_fea_rgb_dilate = self.encoder_l3_rgb(l3_fea_rgb)
+        l4_fea_rgb_dilate = self.encoder_l4_rgb(l4_fea_rgb)
+
+        # l3_fea_rgb_pool = self.avgpool(l3_fea_rgb_dilate)
+        # l4_fea_rgb_pool = self.avgpool(l4_fea_rgb_dilate)
+        l4_fea_rgb_dilate_up = torch.nn.functional.interpolate(l4_fea_rgb_dilate, scale_factor=2, mode='bilinear', align_corners=False)
+        #rgb_fea = l3_fea_rgb_pool + l4_fea_rgb_pool_up
+        rgb_fea_cat = torch.cat((l3_fea_rgb_dilate, l4_fea_rgb_dilate_up), dim=1)
+        #print(rgb_fea.shape)
+        rgb_fea = self.con2d(rgb_fea_cat)
+        rgb_fea = self.relu(rgb_fea)
+        rgb_fea = self.avgpool(rgb_fea)
+
+        rgb_fea_t = self.con2d_t(rgb_fea_cat)
+        rgb_fea_t = self.relu(rgb_fea_t)
+        rgb_fea_t = self.avgpool(rgb_fea_t)
+        rgb_fea_t = torch.squeeze(rgb_fea_t)
+        rgb_fea_t = self.fc_t(rgb_fea_t)
+
+        embedding = torch.flatten(rgb_fea, 1)
+        embedding = self.fc1(embedding)
+        embedding = F.relu(embedding)
+        results = []
+        results.append(self.calorie(embedding).squeeze())
+        results.append(self.mass(embedding).squeeze())
+        results.append(self.fat(embedding).squeeze())
+        results.append(self.carb(embedding).squeeze())
+        results.append(self.protein(embedding).squeeze())
+        return results, rgb_fea_t
+
+class MyResNetRGBD_Swin(nn.Module):
+    def __init__(self):
+        super(MyResNetRGBD_Swin, self).__init__()
+        self.model_rgb = timm.create_model("swin_base_patch4_window12_384", features_only=True, pretrained=False)
+
+        self.model_depth = timm.create_model("swin_base_patch4_window12_384", features_only=True, pretrained=False)
+        for p in self.model_rgb.parameters():
+            p.requires_grad = True
+        
+        for p in self.model_depth.parameters():
+            p.requires_grad = True
+        
+        self.l3_rgb_trans = nn.Conv2d(in_channels=512, out_channels=512, kernel_size=1, bias=True)
+
+
+        self.l3_depth_trans = nn.Conv2d(in_channels=512, out_channels=512, kernel_size=1, bias=True)
+
+        
+        self.l4_rgb_trans = nn.Conv2d(in_channels=1024, out_channels=1024, kernel_size=1, bias=True)
+
+        
+        self.l4_depth_trans = nn.Conv2d(in_channels=1024, out_channels=1024, kernel_size=1, bias=True)
+
+        
+        self.featrans = nn.Conv2d(in_channels=512, out_channels=1024, kernel_size=3, stride = 2, padding=1, bias=True)
+        self.relufeatrans = nn.ReLU(inplace=True)
+        
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        #self.fc1 = nn.Linear(1024, 256) #
+        self.fc1 = nn.Linear(512, 256)  #
+        self.calorie = nn.Sequential(nn.Linear(256, 256), nn.Linear(256, 1))
+        self.mass = nn.Sequential(nn.Linear(256, 256), nn.Linear(256, 1))
+        self.fat = nn.Sequential(nn.Linear(256, 256), nn.Linear(256, 1))
+        self.carb = nn.Sequential(nn.Linear(256, 256), nn.Linear(256, 1))
+        self.protein = nn.Sequential(nn.Linear(256, 256), nn.Linear(256, 1))
+
+        self.encoder_l3_rgb = DilatedEncoder(in_channels=512)
+        self.encoder_l4_rgb = DilatedEncoder(in_channels=1024)
+
+        self.CA_SA_Enhance_3 = CA_SA_Enhance(1024)
+        self.CA_SA_Enhance_4 = CA_SA_Enhance(2048)
+
+        self.con2d = nn.Conv2d(in_channels=1024, out_channels=512, kernel_size=3, padding=1, bias=True)
+        self.relu = nn.ReLU(inplace=True)
+
+        self.con2d_t = nn.Conv2d(in_channels=1024, out_channels=512, kernel_size=3, padding=1, bias=True)
+        self.fc_t = nn.Linear(512,512)
+
+    def forward(self, x_rgb, x_depth):
+        _,_,l3_fea_rgb_src, l4_fea_rgb_src = self.model_rgb(x_rgb)
+        l3_fea_rgb_src = l3_fea_rgb_src.permute(0,3,1,2)
+        l4_fea_rgb_src = l4_fea_rgb_src.permute(0,3,1,2)
+        l3_fea_rgb_src = self.relufeatrans(self.l3_rgb_trans(l3_fea_rgb_src))
+        l4_fea_rgb_src = self.relufeatrans(self.l4_rgb_trans(l4_fea_rgb_src))
+        
+        _,_,l3_fea_depth_src, l4_fea_depth_src = self.model_depth(x_depth)
+        l3_fea_depth_src = l3_fea_depth_src.permute(0,3,1,2)
+        l4_fea_depth_src = l4_fea_depth_src.permute(0,3,1,2)
+        l3_fea_depth_src = self.relufeatrans(self.l3_depth_trans(l3_fea_depth_src))
+        l4_fea_depth_src = self.relufeatrans(self.l4_depth_trans(l4_fea_depth_src))
+        
+        # rgb refine depth
+        l3_fea_depth_rgb = self.CA_SA_Enhance_3(l3_fea_depth_src, l3_fea_rgb_src)
+        l3_fea_depth = l3_fea_depth_src + l3_fea_depth_rgb
+        
+        l3_fea_depth_trans = self.relufeatrans(self.featrans(l3_fea_depth))
+        # print(l3_fea_depth_trans.shape)
+        # print(l4_fea_depth_src.shape)
+        #l4_fea_depth = torch.cat((l3_fea_depth_trans, l4_fea_depth_src), dim=1)
+        l4_fea_depth = l3_fea_depth_trans + l4_fea_depth_src
+        #depth refine rgb
+        l4_fea_rgb_depth = self.CA_SA_Enhance_4(l4_fea_rgb_src, l4_fea_depth)
+        l4_fea_rgb = l4_fea_rgb_src + l4_fea_rgb_depth
+
+
+        l3_fea_rgb_dilate = self.encoder_l3_rgb(l3_fea_rgb_src)
+        l4_fea_rgb_dilate = self.encoder_l4_rgb(l4_fea_rgb)
+
+        # l3_fea_rgb_pool = self.avgpool(l3_fea_rgb_dilate)
+        # l4_fea_rgb_pool = self.avgpool(l4_fea_rgb_dilate)
+        l4_fea_rgb_dilate_up = torch.nn.functional.interpolate(l4_fea_rgb_dilate, scale_factor=2, mode='bilinear', align_corners=False)
+        #rgb_fea = l3_fea_rgb_pool + l4_fea_rgb_pool_up
+        rgb_fea_cat = torch.cat((l3_fea_rgb_dilate, l4_fea_rgb_dilate_up), dim=1)
+        #print(rgb_fea.shape)
+        rgb_fea = self.con2d(rgb_fea_cat)
+        rgb_fea = self.relu(rgb_fea)
+        rgb_fea = self.avgpool(rgb_fea)
+
+        rgb_fea_t = self.con2d_t(rgb_fea_cat)
+        rgb_fea_t = self.relu(rgb_fea_t)
+        rgb_fea_t = self.avgpool(rgb_fea_t)
+        rgb_fea_t = torch.squeeze(rgb_fea_t)
+        rgb_fea_t = self.fc_t(rgb_fea_t)
+
+        embedding = torch.flatten(rgb_fea, 1)
+        embedding = self.fc1(embedding)
+        embedding = F.relu(embedding)
+        results = []
+        results.append(self.calorie(embedding).squeeze())
+        results.append(self.mass(embedding).squeeze())
+        results.append(self.fat(embedding).squeeze())
+        results.append(self.carb(embedding).squeeze())
+        results.append(self.protein(embedding).squeeze())
+        return results, rgb_fea_t
 
 
 
