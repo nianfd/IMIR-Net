@@ -25,5 +25,5 @@ python test_rgbd.py
 ## Quantitative Result
 - [All testset results (Our IMIR-Net with backbone Swin-B)](https://docs.qq.com/sheet/DYm5ZSXNhaml4ZU1I?u=523ecdde394d40a4b1246faf3f4107d3&tab=000001)
   <div align="center">
-  <img src="https://github.com/nianfd/IMIR-Net/blob/main/results.png" width=800 />
+  <img src="https://github.com/nianfd/IMIR-Net/blob/main/alltest.png" width=900 />
 </div>
